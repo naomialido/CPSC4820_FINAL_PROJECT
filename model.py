@@ -21,11 +21,36 @@ data["Total Charges"] = pd.to_numeric(data["Total Charges"], errors="coerce")
 # drop missing values
 data = data.dropna()
 
+
+# engineer Location Type from Zip Code
+zip_density = pd.read_csv("data/uszips.csv", usecols=["zip", "density"])
+zip_density["zip"] = zip_density["zip"].astype(str).str.zfill(5)
+data["Zip Code"] = data["Zip Code"].astype(str).str.zfill(5)
+
+data = data.merge(zip_density, left_on="Zip Code", right_on="zip", how="left")
+
+
+def classify_density(density):
+    if pd.isna(density):
+        return "Suburban"
+    if density >= 2500:
+        return "Urban"
+    elif density >= 1000:
+        return "Suburban"
+    else:
+        return "Rural"
+
+
+data["Location Type"] = data["density"].apply(classify_density)
+data = data.drop(columns=["zip", "density"])
+
+
+print("Engineering Location Type from Zip Code...")
+print(data["Location Type"].value_counts())
+
 # feature engineering
 categorical_cols = [
-    "Country",
-    "State",
-    "City",
+    "Location Type",
     "Senior Citizen",
     "Gender",
     "Partner",
@@ -46,12 +71,29 @@ categorical_cols = [
 
 data = pd.get_dummies(data, columns=categorical_cols, drop_first=True)
 
-# Features and target
-X = data.drop(
-    ["CustomerID", "Count", "Lat Long", "Churn Label", "Churn Value", "Churn Score"],
+# drop non-predictive columns before encoding
+data = data.drop(
+    [
+        "CustomerID",
+        "Count",
+        "Lat Long",
+        "Latitude",
+        "Longitude",
+        "Zip Code",
+        "City",
+        "State",
+        "Country",
+        "CLTV",
+        "Churn Label",
+        "Churn Score",
+        "Churn Reason",
+    ],
     axis=1,
     errors="ignore",
 )
+
+# Features and target
+X = data.drop(["Churn Value"], axis=1, errors="ignore")
 y = data["Churn Value"]
 
 

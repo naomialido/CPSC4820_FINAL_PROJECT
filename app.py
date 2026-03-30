@@ -291,6 +291,29 @@ model, model_columns = load_model()
 explainer = load_explainer(model) if model else None
 
 
+@st.cache_data
+def load_zip_density():
+    path = "data/uszips.csv"
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_csv(path, usecols=["zip", "density"], dtype={"zip": str})
+    df["zip"] = df["zip"].str.zfill(5)
+    return dict(zip(df["zip"], df["density"]))
+
+
+def zip_to_location_type(zip_code: str) -> str:
+    zip_density = load_zip_density()
+    density = zip_density.get(str(zip_code).zfill(5))
+    if density is None:
+        return None
+    if density >= 2500:
+        return "Urban"
+    elif density >= 1000:
+        return "Suburban"
+    else:
+        return "Rural"
+
+
 # human-readable feature name map
 FEATURE_LABELS = {
     "Tenure Months": "Tenure",
@@ -315,6 +338,8 @@ FEATURE_LABELS = {
     "Dependents_Yes": "Has dependents",
     "Senior Citizen_Yes": "Senior citizen",
     "Gender_Male": "Male",
+    "Location Type_Suburban": "Suburban area",
+    "Location Type_Urban": "Urban area",
 }
 
 
@@ -391,19 +416,42 @@ def explain_factor(col, shap_val, customer_val):
             else "paper billing customers tend to be less likely to actively cancel."
         )
 
+    if col == "Gender_Male":
+        return "gender shows no meaningful difference in churn rate in this dataset — this contribution is noise."
+
+    if col == "Location Type_Suburban":
+        return (
+            "suburban customers face moderate competition — some switching options but higher friction than urban areas."
+            if is_active
+            else "this customer is in a rural area — fewer ISP alternatives make them stickier."
+        )
+    if col == "Location Type_Urban":
+        return (
+            "urban customers have the most ISP competition — easier to comparison-shop and switch providers."
+            if is_active
+            else "this customer is not in an urban area, reducing competitive switching pressure."
+        )
+
     # fallback generic explanation
-    state = "active" if is_active else "inactive"
-    return f"'{name}' ({state}) {direction} this customer's churn probability."
+    val_desc = "enabled" if is_active else "not enabled"
+    return f"{name} ({val_desc}) {direction} this customer's churn probability."
 
 
 # helper: build feature row
 def build_feature_row(inputs: dict, model_columns: list) -> pd.DataFrame:
     """one-hot encode inputs to match training schema."""
-    row = pd.DataFrame([inputs])
+    row = inputs.copy()
+
+    # Manually encode Location Type — drop_first=True in training dropped Rural (alphabetically first),
+    # keeping Location Type_Suburban and Location Type_Urban. get_dummies on a single row
+    # only sees one category and drops everything, so we encode explicitly.
+    loc = row.pop("Location Type", None)
+    row["Location Type_Suburban"] = 1 if loc == "Suburban" else 0
+    row["Location Type_Urban"] = 1 if loc == "Urban" else 0
+    # Rural is the reference (both = 0)
+
+    df = pd.DataFrame([row])
     cat_cols = [
-        "Country",
-        "State",
-        "City",
         "Senior Citizen",
         "Gender",
         "Partner",
@@ -421,13 +469,13 @@ def build_feature_row(inputs: dict, model_columns: list) -> pd.DataFrame:
         "Paperless Billing",
         "Payment Method",
     ]
-    row = pd.get_dummies(
-        row, columns=[c for c in cat_cols if c in row.columns], drop_first=True
+    df = pd.get_dummies(
+        df, columns=[c for c in cat_cols if c in df.columns], drop_first=True
     )
     for col in model_columns:
-        if col not in row.columns:
-            row[col] = 0
-    return row[model_columns]
+        if col not in df.columns:
+            df[col] = 0
+    return df[model_columns]
 
 
 # topbar
@@ -466,7 +514,7 @@ with form_col:
         '<div class="form-card"><div class="form-card-title">Demographics</div>',
         unsafe_allow_html=True,
     )
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d3, d4, d5 = st.columns(5)
     with d1:
         gender = st.selectbox("Gender", ["Male", "Female"])
     with d2:
@@ -475,6 +523,36 @@ with form_col:
         partner = st.selectbox("Has Partner", ["Yes", "No"])
     with d4:
         dependents = st.selectbox("Has Dependents", ["Yes", "No"])
+    with d5:
+        zip_input = st.text_input("Zip Code *", placeholder="e.g. 90210", max_chars=5)
+        zip_is_valid_format = (
+            zip_input.strip().isdigit() and len(zip_input.strip()) == 5
+        )
+        derived_location = (
+            zip_to_location_type(zip_input) if zip_is_valid_format else None
+        )
+        zip_invalid = zip_input.strip() == "" or derived_location is None
+        if zip_input.strip() == "":
+            st.markdown(
+                '<span style="color:var(--muted);font-size:0.72rem">enter zip to auto-detect area type</span>',
+                unsafe_allow_html=True,
+            )
+        elif derived_location is None:
+            st.markdown(
+                '<span style="color:#C94040;font-size:0.72rem">⚠ zip not recognised</span>',
+                unsafe_allow_html=True,
+            )
+        else:
+            color = {
+                "Urban": "var(--warn)",
+                "Suburban": "var(--mid)",
+                "Rural": "var(--ok)",
+            }[derived_location]
+            st.markdown(
+                f'<span style="font-size:0.72rem;font-weight:600;color:{color}">📍 {derived_location}</span>',
+                unsafe_allow_html=True,
+            )
+        location_type = derived_location
     st.markdown("</div>", unsafe_allow_html=True)
 
     # account details
@@ -482,15 +560,7 @@ with form_col:
         '<div class="form-card"><div class="form-card-title">Account Details</div>',
         unsafe_allow_html=True,
     )
-    # show errors on default load since numeric fields start blank
-    if "field_errors" not in st.session_state:
-        st.session_state["field_errors"] = {
-            "tenure",
-            "monthly_charges",
-            "total_charges",
-        }
-    _errors = st.session_state["field_errors"]
-    a1, a2, a3 = st.columns(3)
+    a1, a2 = st.columns(2)
     with a1:
         tenure = st.number_input(
             "Tenure (months) *",
@@ -500,7 +570,7 @@ with form_col:
             step=1,
             placeholder="e.g. 12",
         )
-        if "tenure" in _errors:
+        if tenure is None:
             st.markdown(
                 '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
                 unsafe_allow_html=True,
@@ -514,25 +584,16 @@ with form_col:
             step=0.5,
             placeholder="e.g. 65.00",
         )
-        if "monthly_charges" in _errors:
+        if monthly_charges is None:
             st.markdown(
                 '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
                 unsafe_allow_html=True,
             )
-    with a3:
-        total_charges = st.number_input(
-            "Total Charges ($) *",
-            min_value=0.0,
-            max_value=10000.0,
-            value=None,
-            step=1.0,
-            placeholder="e.g. 780.00",
-        )
-        if "total_charges" in _errors:
-            st.markdown(
-                '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
-                unsafe_allow_html=True,
-            )
+    total_charges = (
+        (tenure * monthly_charges)
+        if (tenure is not None and monthly_charges is not None)
+        else 0.0
+    )
     a4, a5, a6 = st.columns(3)
     with a4:
         contract = st.selectbox(
@@ -561,9 +622,16 @@ with form_col:
     with p1:
         phone_service = st.selectbox("Phone Service", ["Yes", "No"])
     with p2:
-        multiple_lines = st.selectbox(
-            "Multiple Lines", ["Yes", "No", "No phone service"]
-        )
+        if phone_service == "No":
+            multiple_lines = "No phone service"
+            st.selectbox(
+                "Multiple Lines",
+                ["No phone service"],
+                disabled=True,
+                help="Locked — no phone service",
+            )
+        else:
+            multiple_lines = st.selectbox("Multiple Lines", ["Yes", "No"])
     st.markdown("</div>", unsafe_allow_html=True)
 
     # internet services
@@ -574,31 +642,74 @@ with form_col:
     i1, i2, i3, i4 = st.columns(4)
     with i1:
         internet_svc = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+    no_internet = internet_svc == "No"
     with i2:
-        online_security = st.selectbox(
-            "Online Security", ["Yes", "No", "No internet service"]
-        )
+        if no_internet:
+            online_security = "No internet service"
+            st.selectbox(
+                "Online Security",
+                ["No internet service"],
+                disabled=True,
+                help="Locked — no internet service",
+            )
+        else:
+            online_security = st.selectbox("Online Security", ["Yes", "No"])
     with i3:
-        online_backup = st.selectbox(
-            "Online Backup", ["Yes", "No", "No internet service"]
-        )
+        if no_internet:
+            online_backup = "No internet service"
+            st.selectbox(
+                "Online Backup",
+                ["No internet service"],
+                disabled=True,
+                help="Locked — no internet service",
+            )
+        else:
+            online_backup = st.selectbox("Online Backup", ["Yes", "No"])
     with i4:
-        device_prot = st.selectbox(
-            "Device Protection", ["Yes", "No", "No internet service"]
-        )
+        if no_internet:
+            device_prot = "No internet service"
+            st.selectbox(
+                "Device Protection",
+                ["No internet service"],
+                disabled=True,
+                help="Locked — no internet service",
+            )
+        else:
+            device_prot = st.selectbox("Device Protection", ["Yes", "No"])
     i5, i6, i7, _ = st.columns(4)
     with i5:
-        tech_support = st.selectbox(
-            "Tech Support", ["Yes", "No", "No internet service"]
-        )
+        if no_internet:
+            tech_support = "No internet service"
+            st.selectbox(
+                "Tech Support",
+                ["No internet service"],
+                disabled=True,
+                help="Locked — no internet service",
+            )
+        else:
+            tech_support = st.selectbox("Tech Support", ["Yes", "No"])
     with i6:
-        streaming_tv = st.selectbox(
-            "Streaming TV", ["Yes", "No", "No internet service"]
-        )
+        if no_internet:
+            streaming_tv = "No internet service"
+            st.selectbox(
+                "Streaming TV",
+                ["No internet service"],
+                disabled=True,
+                help="Locked — no internet service",
+            )
+        else:
+            streaming_tv = st.selectbox("Streaming TV", ["Yes", "No"])
     with i7:
-        streaming_movies = st.selectbox(
-            "Streaming Movies", ["Yes", "No", "No internet service"]
-        )
+        if no_internet:
+            streaming_movies = "No internet service"
+            st.selectbox(
+                "Streaming Movies",
+                ["No internet service"],
+                disabled=True,
+                help="Locked — no internet service",
+            )
+        else:
+            streaming_movies = st.selectbox("Streaming Movies", ["Yes", "No"])
     st.markdown("</div>", unsafe_allow_html=True)
 
     # predict button
@@ -626,33 +737,20 @@ with result_col:
         )
 
     else:
-        # validate required numeric fields
-        field_errors = set()
-        if tenure is None:
-            field_errors.add("tenure")
-        if monthly_charges is None:
-            field_errors.add("monthly_charges")
-        if total_charges is None:
-            field_errors.add("total_charges")
-
-        st.session_state["field_errors"] = field_errors
-
-        if field_errors:
-            # inject red border CSS for blank inputs
+        # validate required fields
+        if tenure is None or monthly_charges is None or zip_invalid:
             red_css = ""
-            if "tenure" in field_errors:
+            if tenure is None:
                 red_css += """
 div[data-testid="stNumberInput"]:has(input[aria-label="Tenure (months) *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
-            if "monthly_charges" in field_errors:
+            if monthly_charges is None:
                 red_css += """
 div[data-testid="stNumberInput"]:has(input[aria-label="Monthly Charges ($) *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
-            if "total_charges" in field_errors:
+            if zip_invalid:
                 red_css += """
-div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
+div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
             st.markdown(f"<style>{red_css}</style>", unsafe_allow_html=True)
             st.stop()
-        else:
-            st.session_state["field_errors"] = set()
 
         # build input dict
         inputs = {
@@ -660,6 +758,7 @@ div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) in
             "Senior Citizen": senior_citizen,
             "Partner": partner,
             "Dependents": dependents,
+            "Location Type": location_type,
             "Tenure Months": tenure,
             "Phone Service": phone_service,
             "Multiple Lines": multiple_lines,
@@ -675,10 +774,6 @@ div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) in
             "Payment Method": payment_method,
             "Monthly Charges": monthly_charges,
             "Total Charges": total_charges,
-            # location placeholders (low-signal at inference time)
-            "Country": "United States",
-            "State": "California",
-            "City": "Los Angeles",
         }
 
         # predict
@@ -723,10 +818,11 @@ div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) in
             "no online security": online_security == "No",
             "paperless billing": paperless_bill == "Yes",
             "high monthly charges": monthly_charges > 75,
+            "urban area (high competition)": location_type == "Urban",
         }
         risk_count = sum(1 for v in factors.values() if v)
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         with m1:
             st.markdown(
                 f'<div class="metric-tile"><div class="metric-num">{tenure}</div><div class="metric-label">tenure (months)</div></div>',
@@ -738,6 +834,11 @@ div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) in
                 unsafe_allow_html=True,
             )
         with m3:
+            st.markdown(
+                f'<div class="metric-tile"><div class="metric-num">${total_charges:,.0f}</div><div class="metric-label">total charges</div></div>',
+                unsafe_allow_html=True,
+            )
+        with m4:
             st.markdown(
                 f'<div class="metric-tile"><div class="metric-num">{risk_count}/8</div><div class="metric-label">risk signals</div></div>',
                 unsafe_allow_html=True,
@@ -920,10 +1021,18 @@ div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) in
         st.markdown(recs_html, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# Feature Logic Explorer
+# feature Logic Explorer
 st.markdown("<br>", unsafe_allow_html=True)
 
 with st.expander("Feature Logic Explorer", expanded=False):
+    st.markdown(
+        '<p style="color:var(--muted);font-size:0.83rem;line-height:1.7;margin:-0.25rem 0 1.25rem">'
+        "Each feature below was deliberately chosen (or dropped) based on its predictive signal, "
+        "data quality, and interpretability. Expand any feature to see what values raise or lower churn risk, "
+        "and why the model weights it the way it does."
+        "</p>",
+        unsafe_allow_html=True,
+    )
     FEATURE_LOGIC = {
         "📅 Tenure": {
             "why_kept": "Tenure is one of the single strongest predictors of churn in subscription businesses. It captures relationship depth — the longer a customer has stayed, the higher their switching cost (learned UI, bundled services, loyalty discounts) and the more satisfied they presumably are.",
@@ -967,8 +1076,8 @@ with st.expander("Feature Logic Explorer", expanded=False):
                 ),
             ],
         },
-        "💰 Monthly & Total Charges": {
-            "why_kept": "Monthly charges capture current price pressure; total charges capture cumulative spend (a proxy for tenure × plan tier). Together they paint a picture of perceived value — high monthly cost with low total spend (new + expensive plan) is a danger zone.",
+        "💰 Monthly Charges": {
+            "why_kept": "Monthly charges capture current price pressure. Total charges are auto-calculated as tenure × monthly charges — a proxy for cumulative spend — and fed to the model automatically without requiring manual input.",
             "why_others_dropped": "CLTV (Customer Lifetime Value) was available in some dataset versions but is a derived field computed from charges and tenure — including it would be near-circular. It was excluded to keep features causal.",
             "values": [
                 (
@@ -1061,9 +1170,30 @@ with st.expander("Feature Logic Explorer", expanded=False):
                 ),
             ],
         },
+        "📍 Location Type": {
+            "why_kept": "Rather than encoding 1,100+ individual California cities, we engineered a single Location Type feature using US Census population density thresholds. Urban customers have more ISP competitors and higher churn tendency; rural customers have fewer alternatives and are stickier.",
+            "why_others_dropped": "Raw City and Zip Code were dropped — one-hot encoding 1,131 cities from ~7,000 rows creates severe sparsity, with most cities having only 2-5 training examples. Population density compresses this into three meaningful, generalisable categories.",
+            "values": [
+                (
+                    "Urban",
+                    "🔴 Higher risk",
+                    "Dense markets have the most ISP competition. Customers can easily switch to a rival offering a better deal. Urban customers are more digitally engaged and more likely to comparison-shop.",
+                ),
+                (
+                    "Suburban",
+                    "🟡 Moderate risk",
+                    "Moderate competition. Customers have some alternatives but switching friction is higher than in urban areas. Price and service quality are the main churn drivers.",
+                ),
+                (
+                    "Rural",
+                    "🟢 Lower risk",
+                    "Fewer competitor options mean customers often stay by default. However, service quality issues hit harder since alternatives are limited — extreme dissatisfaction can still trigger churn.",
+                ),
+            ],
+        },
         "👤 Demographics": {
             "why_kept": "Demographics are kept for model completeness and equity auditing, but they carry low individual predictive weight. The most signal comes from Dependents and Senior Citizen — not gender or partner status.",
-            "why_others_dropped": "Age (continuous) was not available — Senior Citizen (binary 65+) is the available proxy. Race and income were not in the dataset. City/State were dropped as live predictors due to near-zero generalisable signal at inference time.",
+            "why_others_dropped": "Age (continuous) was not available — Senior Citizen (binary 65+) is the available proxy. Race and income were not in the dataset and were not used.",
             "values": [
                 (
                     "Senior Citizen: Yes",
