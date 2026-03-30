@@ -13,7 +13,7 @@ except ImportError:
 
 # page config
 st.set_page_config(
-    page_title="ChurnRadar",
+    page_title="ChurnShield",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -482,23 +482,50 @@ with form_col:
         '<div class="form-card"><div class="form-card-title">Account Details</div>',
         unsafe_allow_html=True,
     )
+    _errors = st.session_state.get("field_errors", set())
     a1, a2, a3 = st.columns(3)
     with a1:
         tenure = st.number_input(
-            "Tenure (months)", min_value=0, max_value=72, value=12, step=1
+            "Tenure (months) *",
+            min_value=0,
+            max_value=72,
+            value=None,
+            step=1,
+            placeholder="e.g. 12",
         )
+        if "tenure" in _errors:
+            st.markdown(
+                '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
+                unsafe_allow_html=True,
+            )
     with a2:
         monthly_charges = st.number_input(
-            "Monthly Charges ($)", min_value=0.0, max_value=200.0, value=65.0, step=0.5
+            "Monthly Charges ($) *",
+            min_value=0.0,
+            max_value=200.0,
+            value=None,
+            step=0.5,
+            placeholder="e.g. 65.00",
         )
+        if "monthly_charges" in _errors:
+            st.markdown(
+                '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
+                unsafe_allow_html=True,
+            )
     with a3:
         total_charges = st.number_input(
-            "Total Charges ($)",
+            "Total Charges ($) *",
             min_value=0.0,
             max_value=10000.0,
-            value=float(12 * 65.0),
+            value=None,
             step=1.0,
+            placeholder="e.g. 780.00",
         )
+        if "total_charges" in _errors:
+            st.markdown(
+                '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
+                unsafe_allow_html=True,
+            )
     a4, a5, a6 = st.columns(3)
     with a4:
         contract = st.selectbox(
@@ -592,6 +619,34 @@ with result_col:
         )
 
     else:
+        # validate required numeric fields
+        field_errors = set()
+        if tenure is None:
+            field_errors.add("tenure")
+        if monthly_charges is None:
+            field_errors.add("monthly_charges")
+        if total_charges is None:
+            field_errors.add("total_charges")
+
+        st.session_state["field_errors"] = field_errors
+
+        if field_errors:
+            # inject red border CSS for blank inputs
+            red_css = ""
+            if "tenure" in field_errors:
+                red_css += """
+div[data-testid="stNumberInput"]:has(input[aria-label="Tenure (months) *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
+            if "monthly_charges" in field_errors:
+                red_css += """
+div[data-testid="stNumberInput"]:has(input[aria-label="Monthly Charges ($) *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
+            if "total_charges" in field_errors:
+                red_css += """
+div[data-testid="stNumberInput"]:has(input[aria-label="Total Charges ($) *"]) input { border-color: #C94040 !important; box-shadow: 0 0 0 1px #C94040 !important; }"""
+            st.markdown(f"<style>{red_css}</style>", unsafe_allow_html=True)
+            st.stop()
+        else:
+            st.session_state["field_errors"] = set()
+
         # build input dict
         inputs = {
             "Gender": gender,
@@ -716,17 +771,23 @@ with result_col:
 
             st.markdown(
                 '<p style="color:var(--muted);font-size:0.74rem;margin:-0.3rem 0 1rem">'
-                "🔍 customer-specific · shap values show how each feature shifted this score from the baseline.</p>",
+                "🔍 customer-specific · each bar shows how strongly a factor pushes this customer toward or away from churning.</p>",
                 unsafe_allow_html=True,
             )
 
+            # convert shap values to % impact relative to their total absolute pull
+            total_abs = top_shap.sum()
             bars_html = ""
             for feat in top_shap.index:
                 sv_val = float(top_shap_signed[feat])
                 cust_val = float(X_input[feat].iloc[0])
                 width = int(abs(sv_val) / abs_max * 100)
+                impact_pct = (
+                    int(round(abs(sv_val) / total_abs * 100)) if total_abs > 0 else 0
+                )
                 color = "#C94040" if sv_val > 0 else "#1A7A52"
                 arrow = "▲" if sv_val > 0 else "▼"
+                direction_word = "raises risk" if sv_val > 0 else "lowers risk"
                 label = friendly_name(feat)
                 sentence = explain_factor(feat, sv_val, cust_val)
 
@@ -734,7 +795,7 @@ with result_col:
                 <div class="bar-row">
                   <div class="bar-meta">
                     <span class="bar-name">{arrow} {label}</span>
-                    <span class="bar-val" style="color:{color}">{sv_val:+.3f}</span>
+                    <span class="bar-val" style="color:{color}">{impact_pct}% impact · {direction_word}</span>
                   </div>
                   <div class="bar-track">
                     <div class="bar-fill" style="width:{width}%;background:{color};"></div>
@@ -752,15 +813,17 @@ with result_col:
             fi = pd.Series(model.feature_importances_, index=model_columns)
             top_fi = fi.nlargest(10)
             fi_max = top_fi.max()
+            fi_total = top_fi.sum()
             bars_html = ""
             for feat, imp in top_fi.items():
                 short = friendly_name(feat)[:40]
                 width = int(imp / fi_max * 100)
+                impact_pct = int(round(imp / fi_total * 100)) if fi_total > 0 else 0
                 bars_html += f"""
                 <div class="bar-row">
                   <div class="bar-meta">
                     <span class="bar-name">{short}</span>
-                    <span class="bar-val" style="color:var(--blue)">{imp:.3f}</span>
+                    <span class="bar-val" style="color:var(--blue)">{impact_pct}% influence</span>
                   </div>
                   <div class="bar-track">
                     <div class="bar-fill" style="width:{width}%;background:var(--blue);"></div>
@@ -850,7 +913,7 @@ with result_col:
         st.markdown(recs_html, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ── Feature Logic Explorer ────────────────────────────────────────────────────
+# Feature Logic Explorer
 st.markdown("<br>", unsafe_allow_html=True)
 
 with st.expander("Feature Logic Explorer", expanded=False):
