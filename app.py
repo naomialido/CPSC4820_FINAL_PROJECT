@@ -271,8 +271,19 @@ h1,h2,h3,h4 { color: var(--text) !important; }
 
 
 # model loader
+def _model_mtime():
+    """Returns modification times of pkl files as a cache key."""
+    try:
+        return (
+            os.path.getmtime("churn_model.pkl"),
+            os.path.getmtime("model_columns.pkl"),
+        )
+    except OSError:
+        return (0, 0)
+
+
 @st.cache_resource
-def load_model():
+def load_model(mtime):  # mtime busts cache when files are retrained
     if os.path.exists("churn_model.pkl") and os.path.exists("model_columns.pkl"):
         model = joblib.load("churn_model.pkl")
         cols = joblib.load("model_columns.pkl")
@@ -281,15 +292,16 @@ def load_model():
 
 
 @st.cache_resource
-def load_explainer(_model):
+def load_explainer(_model, mtime):  # mtime busts cache when model changes
     """build a treeexplainer once and reuse it."""
     if SHAP_AVAILABLE:
         return shap.TreeExplainer(_model, feature_perturbation="interventional")
     return None
 
 
-model, model_columns = load_model()
-explainer = load_explainer(model) if model else None
+_mtime = _model_mtime()
+model, model_columns = load_model(_mtime)
+explainer = load_explainer(model, _mtime) if model else None
 
 
 @st.cache_data
@@ -735,7 +747,7 @@ with result_col:
           <div style="font-size:2.8rem;margin-bottom:0.9rem">📋</div>
           <div style="font-weight:600;color:var(--text);margin-bottom:0.5rem;font-size:1rem">Ready to score</div>
           <div style="color:var(--muted);font-size:0.84rem;line-height:1.7">
-            fill in the customer profile on the left<br>and click <strong style="color:var(--blue)">Predict Churn Risk</strong>.
+            Fill in the customer profile on the left<br>and click <strong style="color:var(--blue)">Predict Churn Risk</strong>.
           </div>
         </div>
         """,
@@ -974,49 +986,49 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
             recs.append(
                 (
                     "📋",
-                    "offer a discounted 1- or 2-year contract upgrade to increase switching cost.",
+                    "Offer a discounted 1- or 2-year contract upgrade to increase switching cost.",
                 )
             )
         if internet_svc == "Fiber optic" and tech_support == "No":
             recs.append(
                 (
                     "🛡️",
-                    "upsell the tech support bundle — fiber users without support churn at 2× the rate.",
+                    "Upsell the tech support bundle — fiber users without support churn at 2× the rate.",
                 )
             )
         if payment_method == "Electronic check":
             recs.append(
                 (
                     "💳",
-                    "encourage auto-pay via bank transfer or credit card; echeck correlates strongly with churn.",
+                    "Encourage auto-pay via bank transfer or credit card; echeck correlates strongly with churn.",
                 )
             )
         if tenure < 12:
             recs.append(
                 (
                     "🎁",
-                    "activate the early loyalty program — first-year customers are highest-risk.",
+                    "Activate the early loyalty program — first-year customers are highest-risk.",
                 )
             )
         if monthly_charges > 75 and contract == "Month-to-month":
             recs.append(
                 (
                     "💰",
-                    "propose a loyalty discount or value-add (e.g. free streaming add-on) to justify charges.",
+                    "Propose a loyalty discount or value-add (e.g. free streaming add-on) to justify charges.",
                 )
             )
         if online_security == "No" and internet_svc != "No":
             recs.append(
                 (
                     "🔒",
-                    "offer a 3-month free trial of online security — improves satisfaction and stickiness.",
+                    "Offer a 3-month free trial of online security — improves satisfaction and stickiness.",
                 )
             )
         if not recs:
             recs.append(
                 (
                     "✅",
-                    "no urgent interventions needed. continue standard engagement cadence.",
+                    "No urgent interventions needed. continue standard engagement cadence.",
                 )
             )
 
