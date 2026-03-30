@@ -329,51 +329,127 @@ def zip_to_location_type(zip_code: str) -> str:
 
 # human-readable feature name map
 FEATURE_LABELS = {
+    # numeric
     "Tenure Months": "Tenure",
     "Monthly Charges": "Monthly charges",
     "Total Charges": "Total charges",
+    # contract
     "Contract_One year": "One-year contract",
     "Contract_Two year": "Two-year contract",
+    # internet service
     "Internet Service_Fiber optic": "Fiber optic internet",
     "Internet Service_No": "No internet service",
-    "Payment Method_Electronic check": "Electronic check payment",
-    "Payment Method_Mailed check": "Mailed check payment",
-    "Tech Support_Yes": "Has tech support",
-    "Online Security_Yes": "Has online security",
-    "Online Backup_Yes": "Has online backup",
-    "Device Protection_Yes": "Has device protection",
-    "Streaming TV_Yes": "Has streaming TV",
-    "Streaming Movies_Yes": "Has streaming movies",
-    "Multiple Lines_Yes": "Has multiple lines",
-    "Phone Service_Yes": "Has phone service",
+    # internet add-ons
+    "Online Security_Yes": "Online security",
+    "Online Security_No internet service": "Online security",
+    "Online Backup_Yes": "Online backup",
+    "Online Backup_No internet service": "Online backup",
+    "Device Protection_Yes": "Device protection",
+    "Device Protection_No internet service": "Device protection",
+    "Tech Support_Yes": "Tech support",
+    "Tech Support_No internet service": "Tech support",
+    "Streaming TV_Yes": "Streaming TV",
+    "Streaming TV_No internet service": "Streaming TV",
+    "Streaming Movies_Yes": "Streaming movies",
+    "Streaming Movies_No internet service": "Streaming movies",
+    # phone
+    "Phone Service_Yes": "Phone service",
+    "Multiple Lines_Yes": "Multiple lines",
+    "Multiple Lines_No phone service": "Multiple lines",
+    # payment / billing
+    "Payment Method_Electronic check": "Electronic check",
+    "Payment Method_Mailed check": "Mailed check",
+    "Payment Method_Credit card (automatic)": "Credit card (auto)",
     "Paperless Billing_Yes": "Paperless billing",
+    # demographics
     "Partner_Yes": "Has partner",
     "Dependents_Yes": "Has dependents",
-    "Senior Citizen_Yes": "Senior citizen",
-    "Gender_Male": "Male",
+    "Senior Citizen_1": "Senior citizen",
+    "Gender_Male": "Gender (Male)",
+    # location
     "Location Type_Suburban": "Suburban area",
     "Location Type_Urban": "Urban area",
 }
 
 
-def friendly_name(col):
+def friendly_name(col, customer_val=None):
+    """Return a human-readable label, using the customer's actual value where
+    the feature name alone would be misleading (e.g. Contract_Two year when the
+    customer is actually month-to-month)."""
+    if customer_val is not None:
+        if col == "Contract_Two year":
+            return (
+                "Two-year contract" if customer_val == 1 else "Month-to-month contract"
+            )
+        if col == "Contract_One year":
+            return (
+                "One-year contract" if customer_val == 1 else "Month-to-month contract"
+            )
+        if col == "Internet Service_Fiber optic":
+            return "Fiber optic internet" if customer_val == 1 else "DSL internet"
+        if col == "Internet Service_No":
+            return (
+                "No internet service" if customer_val == 1 else "Has internet service"
+            )
+        if col == "Phone Service_Yes":
+            return "Has phone service" if customer_val == 1 else "No phone service"
+        if col == "Multiple Lines_Yes":
+            return "Multiple lines" if customer_val == 1 else "Single line"
+        if col == "Multiple Lines_No phone service":
+            return "No phone service" if customer_val == 1 else "Has phone service"
+        if col in ("Online Security_Yes", "Online Security_No internet service"):
+            return "Online security" if customer_val == 1 else "No online security"
+        if col in ("Online Backup_Yes", "Online Backup_No internet service"):
+            return "Online backup" if customer_val == 1 else "No online backup"
+        if col in ("Device Protection_Yes", "Device Protection_No internet service"):
+            return "Device protection" if customer_val == 1 else "No device protection"
+        if col in ("Tech Support_Yes", "Tech Support_No internet service"):
+            return "Has tech support" if customer_val == 1 else "No tech support"
+        if col in ("Streaming TV_Yes", "Streaming TV_No internet service"):
+            return "Streaming TV" if customer_val == 1 else "No streaming TV"
+        if col in ("Streaming Movies_Yes", "Streaming Movies_No internet service"):
+            return "Streaming movies" if customer_val == 1 else "No streaming movies"
+        if col == "Payment Method_Electronic check":
+            return "Electronic check" if customer_val == 1 else "Auto-pay"
+        if col == "Payment Method_Mailed check":
+            return "Mailed check" if customer_val == 1 else "Auto-pay"
+        if col == "Payment Method_Credit card (automatic)":
+            return "Credit card (auto)" if customer_val == 1 else "Other payment method"
+        if col == "Paperless Billing_Yes":
+            return "Paperless billing" if customer_val == 1 else "Paper billing"
+        if col == "Partner_Yes":
+            return "Has partner" if customer_val == 1 else "No partner"
+        if col == "Dependents_Yes":
+            return "Has dependents" if customer_val == 1 else "No dependents"
+        if col == "Senior Citizen_1":
+            return "Senior citizen" if customer_val == 1 else "Non-senior"
+        if col == "Gender_Male":
+            return "Male" if customer_val == 1 else "Female"
+        if col == "Location Type_Suburban":
+            return "Suburban area" if customer_val == 1 else "Rural area"
+        if col == "Location Type_Urban":
+            return "Urban area" if customer_val == 1 else "Non-urban area"
     return FEATURE_LABELS.get(col, col.replace("_", " "))
 
 
 # plain-english explanation generator
 def explain_factor(col, shap_val, customer_val):
-    """return a one-sentence plain-english reason for a shap contribution."""
+    """Return a one-sentence plain-English reason for a SHAP contribution."""
     direction = "increases" if shap_val > 0 else "reduces"
-    name = friendly_name(col)
+    name = friendly_name(col, customer_val)
+    is_active = customer_val == 1
 
-    # numeric columns
+    # --- numeric ---
     if col == "Tenure Months":
         adj = (
             "short"
             if customer_val < 12
             else ("moderate" if customer_val < 36 else "long")
         )
-        return f"a {adj} tenure of {int(customer_val)} months {direction} churn risk — longer customers are harder to lose."
+        return (
+            f"a {adj} tenure of {int(customer_val)} months {direction} churn risk — "
+            "longer-tenured customers are harder to lose."
+        )
     if col == "Monthly Charges":
         adj = (
             "high"
@@ -384,107 +460,263 @@ def explain_factor(col, shap_val, customer_val):
     if col == "Total Charges":
         return f"lifetime spend of ${customer_val:,.0f} {direction} churn risk."
 
-    # boolean/encoded columns — interpret the 1/0 value
-    is_active = customer_val == 1
+    # --- contract ---
     if col == "Contract_Two year":
         return (
             "two-year contracts strongly reduce churn risk — customers are locked in."
             if is_active
-            else "no long-term contract means higher switching freedom."
+            else "no long-term contract means the customer can leave any time."
         )
     if col == "Contract_One year":
         return (
             "one-year contracts moderately reduce churn risk vs. month-to-month."
             if is_active
-            else "no annual contract — customer can leave any time."
-        )
-    if col == "Internet Service_Fiber optic":
-        return (
-            "fiber optic customers churn more often, possibly due to higher bills and more competition."
-            if is_active
-            else "non-fiber customers tend to be stickier."
-        )
-    if col == "Payment Method_Electronic check":
-        return (
-            "electronic check users churn at a higher rate — often less engaged customers."
-            if is_active
-            else "automated payment methods correlate with lower churn."
-        )
-    if col == "Tech Support_Yes":
-        return (
-            "having tech support reduces frustration and churn."
-            if is_active
-            else "no tech support increases the risk of service dissatisfaction."
-        )
-    if col == "Online Security_Yes":
-        return (
-            "online security subscribers feel more invested in the service."
-            if is_active
-            else "absence of security add-ons correlates with lower commitment."
-        )
-    if col == "Paperless Billing_Yes":
-        return (
-            "paperless billing customers tend to be more digitally engaged — slightly higher churn."
-            if is_active
-            else "paper billing customers tend to be less likely to actively cancel."
+            else "no annual contract — customer faces zero switching cost."
         )
 
+    # --- internet service ---
+    if col == "Internet Service_Fiber optic":
+        return (
+            "fiber optic customers churn more often — higher bills and more competition."
+            if is_active
+            else "DSL customers tend to be stickier due to lower cost and expectations."
+        )
+    if col == "Internet Service_No":
+        return (
+            "phone-only customers have fewer alternatives and churn rarely."
+            if is_active
+            else "having internet service exposes the customer to more competition."
+        )
+
+    # --- phone service ---
+    if col == "Phone Service_Yes":
+        return (
+            "having phone service adds a service tie that slightly reduces churn."
+            if is_active
+            else "no phone service means fewer bundled ties to the provider."
+        )
+    if col == "Multiple Lines_Yes":
+        return (
+            "multiple-line customers have a higher-value bundle — harder to leave."
+            if is_active
+            else "a single line offers less bundle stickiness."
+        )
+    if col == "Multiple Lines_No phone service":
+        return (
+            "no phone service removes one of the bundle anchors that reduce churn."
+            if is_active
+            else "having phone service adds a bundle anchor that reduces churn."
+        )
+
+    # --- internet add-ons ---
+    if col in ("Tech Support_Yes", "Tech Support_No internet service"):
+        return (
+            "tech support gives customers a direct service relationship — churn is roughly half."
+            if is_active
+            else "no tech support means problems go unresolved, raising frustration and churn risk."
+        )
+    if col in ("Online Security_Yes", "Online Security_No internet service"):
+        return (
+            "online security subscribers feel invested — switching means losing active protection."
+            if is_active
+            else "no security add-on removes a loyalty anchor and switching friction."
+        )
+    if col in ("Online Backup_Yes", "Online Backup_No internet service"):
+        return (
+            "online backup customers have data stored with the provider — strong switching friction."
+            if is_active
+            else "no backup add-on means one less reason to stay."
+        )
+    if col in ("Device Protection_Yes", "Device Protection_No internet service"):
+        return (
+            "device protection subscribers are paying for ongoing coverage — less likely to cancel."
+            if is_active
+            else "no device protection reduces the cost of switching providers."
+        )
+    if col in ("Streaming TV_Yes", "Streaming TV_No internet service"):
+        return (
+            "streaming TV adds to bundle depth, modestly reducing churn."
+            if is_active
+            else "no streaming TV add-on offers less bundle lock-in."
+        )
+    if col in ("Streaming Movies_Yes", "Streaming Movies_No internet service"):
+        return (
+            "streaming movies subscription deepens the bundle tie to the provider."
+            if is_active
+            else "no streaming movies add-on means a thinner bundle."
+        )
+
+    # --- payment method ---
+    if col == "Payment Method_Electronic check":
+        return (
+            "electronic check users churn at the highest rate — often one-time setup, low commitment."
+            if is_active
+            else "non-echeck payment correlates with higher engagement and lower churn."
+        )
+    if col == "Payment Method_Mailed check":
+        return (
+            "mailed-check payers engage each month manually — moderate churn, higher than auto-pay."
+            if is_active
+            else "auto-pay customers are systematically more committed than manual payers."
+        )
+    if col == "Payment Method_Credit card (automatic)":
+        return (
+            "credit card auto-pay signals deliberate long-term commitment and lower churn."
+            if is_active
+            else "non-auto-pay methods are associated with less committed customers."
+        )
+
+    # --- billing ---
+    if col == "Paperless Billing_Yes":
+        return (
+            "paperless billing customers are more digitally active — slightly higher churn."
+            if is_active
+            else "paper billing customers tend to be less active online and less likely to cancel."
+        )
+
+    # --- demographics ---
+    if col == "Partner_Yes":
+        return (
+            "shared services are harder to cancel — having a partner slightly reduces churn."
+            if is_active
+            else "single-account customers face lower friction when switching."
+        )
+    if col == "Dependents_Yes":
+        return (
+            "customers with dependents rely on stable connectivity — disruption is costly for the household."
+            if is_active
+            else "no dependents means a simpler decision to switch providers."
+        )
+    if col == "Senior Citizen_1":
+        return (
+            "senior citizens may face higher friction cancelling, but can be price-sensitive — modest effect."
+            if is_active
+            else "non-senior customers are in the primary churn-risk demographic."
+        )
     if col == "Gender_Male":
         return "gender shows no meaningful difference in churn rate in this dataset — this contribution is noise."
 
+    # --- location ---
     if col == "Location Type_Suburban":
         return (
-            "suburban customers face moderate competition — some switching options but higher friction than urban areas."
+            "suburban customers face moderate ISP competition — some alternatives but higher switching friction."
             if is_active
-            else "this customer is in a rural area — fewer ISP alternatives make them stickier."
+            else "rural customers have fewer ISP alternatives, making them stickier by default."
         )
     if col == "Location Type_Urban":
         return (
-            "urban customers have the most ISP competition — easier to comparison-shop and switch providers."
+            "urban customers face the most ISP competition — easiest to comparison-shop and switch."
             if is_active
-            else "this customer is not in an urban area, reducing competitive switching pressure."
+            else "non-urban customers face less competitive pressure to switch providers."
         )
 
-    # fallback generic explanation
-    val_desc = "enabled" if is_active else "not enabled"
+    # fallback
+    val_desc = "active" if is_active else "inactive"
     return f"{name} ({val_desc}) {direction} this customer's churn probability."
 
 
 # helper: build feature row
 def build_feature_row(inputs: dict, model_columns: list) -> pd.DataFrame:
-    """one-hot encode inputs to match training schema."""
+    """Explicitly one-hot encode inputs to match the training schema.
+
+    pd.get_dummies(drop_first=True) on a single row only sees one category per
+    column and drops it, zeroing every feature.  Instead we encode every
+    categorical by hand, mirroring exactly what drop_first=True produced on the
+    full training set (reference = alphabetically first value).
+    """
     row = inputs.copy()
 
-    # Manually encode Location Type — drop_first=True in training dropped Rural (alphabetically first),
-    # keeping Location Type_Suburban and Location Type_Urban. get_dummies on a single row
-    # only sees one category and drops everything, so we encode explicitly.
+    # --- Location Type (reference: Rural) ---
     loc = row.pop("Location Type", None)
     row["Location Type_Suburban"] = 1 if loc == "Suburban" else 0
     row["Location Type_Urban"] = 1 if loc == "Urban" else 0
-    # Rural is the reference (both = 0)
+
+    # --- Senior Citizen (reference: 0) ---
+    # The IBM Telco CSV stores Senior Citizen as integers 0/1, so get_dummies
+    # produces "Senior Citizen_1" (not "_Yes").  The UI selectbox sends "Yes"/"No".
+    sc = row.pop("Senior Citizen", None)
+    row["Senior Citizen_1"] = 1 if sc == "Yes" else 0
+
+    # --- Gender (reference: Female) ---
+    g = row.pop("Gender", None)
+    row["Gender_Male"] = 1 if g == "Male" else 0
+
+    # --- Partner (reference: No) ---
+    p = row.pop("Partner", None)
+    row["Partner_Yes"] = 1 if p == "Yes" else 0
+
+    # --- Dependents (reference: No) ---
+    d = row.pop("Dependents", None)
+    row["Dependents_Yes"] = 1 if d == "Yes" else 0
+
+    # --- Phone Service (reference: No) ---
+    ps = row.pop("Phone Service", None)
+    row["Phone Service_Yes"] = 1 if ps == "Yes" else 0
+
+    # --- Multiple Lines (reference: No) ---
+    ml = row.pop("Multiple Lines", None)
+    row["Multiple Lines_No phone service"] = 1 if ml == "No phone service" else 0
+    row["Multiple Lines_Yes"] = 1 if ml == "Yes" else 0
+
+    # --- Internet Service (reference: DSL) ---
+    isvc = row.pop("Internet Service", None)
+    row["Internet Service_Fiber optic"] = 1 if isvc == "Fiber optic" else 0
+    row["Internet Service_No"] = 1 if isvc == "No" else 0
+
+    # --- Online Security (reference: No) ---
+    osec = row.pop("Online Security", None)
+    row["Online Security_No internet service"] = (
+        1 if osec == "No internet service" else 0
+    )
+    row["Online Security_Yes"] = 1 if osec == "Yes" else 0
+
+    # --- Online Backup (reference: No) ---
+    obk = row.pop("Online Backup", None)
+    row["Online Backup_No internet service"] = 1 if obk == "No internet service" else 0
+    row["Online Backup_Yes"] = 1 if obk == "Yes" else 0
+
+    # --- Device Protection (reference: No) ---
+    dp = row.pop("Device Protection", None)
+    row["Device Protection_No internet service"] = (
+        1 if dp == "No internet service" else 0
+    )
+    row["Device Protection_Yes"] = 1 if dp == "Yes" else 0
+
+    # --- Tech Support (reference: No) ---
+    ts = row.pop("Tech Support", None)
+    row["Tech Support_No internet service"] = 1 if ts == "No internet service" else 0
+    row["Tech Support_Yes"] = 1 if ts == "Yes" else 0
+
+    # --- Streaming TV (reference: No) ---
+    stv = row.pop("Streaming TV", None)
+    row["Streaming TV_No internet service"] = 1 if stv == "No internet service" else 0
+    row["Streaming TV_Yes"] = 1 if stv == "Yes" else 0
+
+    # --- Streaming Movies (reference: No) ---
+    smv = row.pop("Streaming Movies", None)
+    row["Streaming Movies_No internet service"] = (
+        1 if smv == "No internet service" else 0
+    )
+    row["Streaming Movies_Yes"] = 1 if smv == "Yes" else 0
+
+    # --- Contract (reference: Month-to-month) ---
+    ct = row.pop("Contract", None)
+    row["Contract_One year"] = 1 if ct == "One year" else 0
+    row["Contract_Two year"] = 1 if ct == "Two year" else 0
+
+    # --- Paperless Billing (reference: No) ---
+    pb = row.pop("Paperless Billing", None)
+    row["Paperless Billing_Yes"] = 1 if pb == "Yes" else 0
+
+    # --- Payment Method (reference: Bank transfer (automatic)) ---
+    pm = row.pop("Payment Method", None)
+    row["Payment Method_Credit card (automatic)"] = (
+        1 if pm == "Credit card (automatic)" else 0
+    )
+    row["Payment Method_Electronic check"] = 1 if pm == "Electronic check" else 0
+    row["Payment Method_Mailed check"] = 1 if pm == "Mailed check" else 0
 
     df = pd.DataFrame([row])
-    cat_cols = [
-        "Senior Citizen",
-        "Gender",
-        "Partner",
-        "Dependents",
-        "Phone Service",
-        "Multiple Lines",
-        "Internet Service",
-        "Online Security",
-        "Online Backup",
-        "Device Protection",
-        "Tech Support",
-        "Streaming TV",
-        "Streaming Movies",
-        "Contract",
-        "Paperless Billing",
-        "Payment Method",
-    ]
-    df = pd.get_dummies(
-        df, columns=[c for c in cat_cols if c in df.columns], drop_first=True
-    )
     for col in model_columns:
         if col not in df.columns:
             df[col] = 0
@@ -830,15 +1062,17 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
         factors = {
             "month-to-month contract": contract == "Month-to-month",
             "fiber optic internet": internet_svc == "Fiber optic",
-            "no tech support": tech_support == "No",
+            # Only flag these when the customer actually has internet service
+            "no tech support": internet_svc != "No" and tech_support == "No",
             "electronic check": payment_method == "Electronic check",
             "low tenure (< 12 mo)": tenure < 12,
-            "no online security": online_security == "No",
+            "no online security": internet_svc != "No" and online_security == "No",
             "paperless billing": paperless_bill == "Yes",
             "high monthly charges": monthly_charges > 75,
             "urban area (high competition)": location_type == "Urban",
         }
         risk_count = sum(1 for v in factors.values() if v)
+        max_signals = len(factors)
 
         m1, m2, m3, m4 = st.columns(4)
         with m1:
@@ -858,7 +1092,7 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
             )
         with m4:
             st.markdown(
-                f'<div class="metric-tile"><div class="metric-num">{risk_count}/8</div><div class="metric-label">risk signals</div></div>',
+                f'<div class="metric-tile"><div class="metric-num">{risk_count}/{max_signals}</div><div class="metric-label">risk signals</div></div>',
                 unsafe_allow_html=True,
             )
 
@@ -914,7 +1148,7 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
                 color = "#C94040" if sv_val > 0 else "#1A7A52"
                 arrow = "▲" if sv_val > 0 else "▼"
                 direction_word = "raises risk" if sv_val > 0 else "lowers risk"
-                label = friendly_name(feat)
+                label = friendly_name(feat, cust_val)
                 sentence = explain_factor(feat, sv_val, cust_val)
 
                 bars_html += f"""
@@ -989,7 +1223,7 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
                     "Offer a discounted 1- or 2-year contract upgrade to increase switching cost.",
                 )
             )
-        if internet_svc == "Fiber optic" and tech_support == "No":
+        if internet_svc == "Fiber optic" and tech_support != "Yes":
             recs.append(
                 (
                     "🛡️",
@@ -1017,11 +1251,25 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
                     "Propose a loyalty discount or value-add (e.g. free streaming add-on) to justify charges.",
                 )
             )
-        if online_security == "No" and internet_svc != "No":
+        if internet_svc != "No" and online_security != "Yes":
             recs.append(
                 (
                     "🔒",
                     "Offer a 3-month free trial of online security — improves satisfaction and stickiness.",
+                )
+            )
+        if internet_svc != "No" and online_backup != "Yes":
+            recs.append(
+                (
+                    "☁️",
+                    "Promote online backup — customers with backup add-ons show stronger service commitment.",
+                )
+            )
+        if phone_service == "Yes" and multiple_lines != "Yes":
+            recs.append(
+                (
+                    "📱",
+                    "Consider upselling a second line — multiple-line customers have lower churn rates.",
                 )
             )
         if not recs:
