@@ -482,7 +482,14 @@ with form_col:
         '<div class="form-card"><div class="form-card-title">Account Details</div>',
         unsafe_allow_html=True,
     )
-    _errors = st.session_state.get("field_errors", set())
+    # show errors on default load since numeric fields start blank
+    if "field_errors" not in st.session_state:
+        st.session_state["field_errors"] = {
+            "tenure",
+            "monthly_charges",
+            "total_charges",
+        }
+    _errors = st.session_state["field_errors"]
     a1, a2, a3 = st.columns(3)
     with a1:
         tenure = st.number_input(
