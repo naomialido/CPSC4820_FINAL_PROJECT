@@ -537,6 +537,10 @@ with form_col:
                 '<span style="color:var(--muted);font-size:0.72rem">enter zip to auto-detect area type</span>',
                 unsafe_allow_html=True,
             )
+            st.markdown(
+                '<span style="color:#C94040;font-size:0.75rem">⚠ This field is required.</span>',
+                unsafe_allow_html=True,
+            )
         elif derived_location is None:
             st.markdown(
                 '<span style="color:#C94040;font-size:0.72rem">⚠ zip not recognised</span>',
@@ -727,7 +731,7 @@ with result_col:
             """
         <div class="info-card" style="text-align:center;padding:3rem 1.5rem;">
           <div style="font-size:2.8rem;margin-bottom:0.9rem">📋</div>
-          <div style="font-weight:600;color:var(--text);margin-bottom:0.5rem;font-size:1rem">ready to score</div>
+          <div style="font-weight:600;color:var(--text);margin-bottom:0.5rem;font-size:1rem">Ready to score</div>
           <div style="color:var(--muted);font-size:0.84rem;line-height:1.7">
             fill in the customer profile on the left<br>and click <strong style="color:var(--blue)">Predict Churn Risk</strong>.
           </div>
@@ -1021,13 +1025,13 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
         st.markdown(recs_html, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# feature Logic Explorer
+# Feature Logic Explorer
 st.markdown("<br>", unsafe_allow_html=True)
 
 with st.expander("Feature Logic Explorer", expanded=False):
     st.markdown(
         '<p style="color:var(--muted);font-size:0.83rem;line-height:1.7;margin:-0.25rem 0 1.25rem">'
-        "Each feature below was deliberately chosen (or dropped) based on its predictive signal, "
+        "Each feature below was deliberately chosen — or dropped — based on its predictive signal, "
         "data quality, and interpretability. Expand any feature to see what values raise or lower churn risk, "
         "and why the model weights it the way it does."
         "</p>",
