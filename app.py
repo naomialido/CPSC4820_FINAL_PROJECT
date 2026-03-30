@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import joblib
@@ -723,7 +724,8 @@ with form_col:
 # results column
 with result_col:
     st.markdown(
-        '<div class="section-label">Risk Assessment</div>', unsafe_allow_html=True
+        '<div class="section-label">Risk Assessment</div>',
+        unsafe_allow_html=True,
     )
 
     if not predict_btn:
@@ -1026,252 +1028,252 @@ div[data-testid="stTextInput"]:has(input[aria-label="Zip Code *"]) input { borde
         st.markdown("</div>", unsafe_allow_html=True)
 
 # Feature Logic Explorer
-st.markdown("<br>", unsafe_allow_html=True)
+fle_intro = (
+    '<p style="color:var(--muted);font-size:0.83rem;line-height:1.7;margin:0 0 1.25rem">'
+    "Each feature below was deliberately chosen — or dropped — based on its predictive signal, "
+    "data quality, and interpretability. Expand any feature to see what values raise or lower churn risk, "
+    "and why the model weights it the way it does."
+    "</p>"
+)
+FEATURE_LOGIC = {
+    "📅 Tenure": {
+        "why_kept": "Tenure is one of the single strongest predictors of churn in subscription businesses. It captures relationship depth — the longer a customer has stayed, the higher their switching cost (learned UI, bundled services, loyalty discounts) and the more satisfied they presumably are.",
+        "why_others_dropped": "Raw signup date was dropped — absolute dates leak time-of-year bias and don't generalise across cohorts. Tenure (months) is a clean, comparable numeric signal.",
+        "values": [
+            (
+                "0 – 11 months",
+                "🔴 Highest risk",
+                "New customers haven't yet experienced full service value. Buyer's remorse, onboarding friction, and competitor offers hit hardest in the first year. Churn rate in this band is typically 2–3× the average.",
+            ),
+            (
+                "12 – 35 months",
+                "🟡 Moderate risk",
+                "Customer has cleared the critical early window but hasn't reached deep loyalty. Price sensitivity remains — a competitor offer can still flip them.",
+            ),
+            (
+                "36 + months",
+                "🟢 Low risk",
+                "Long-tenure customers have high inertia. They've integrated the service into their routines, likely have bundled add-ons, and rarely shop around actively.",
+            ),
+        ],
+    },
+    "💳 Contract Type": {
+        "why_kept": "Contract type directly encodes commitment and exit cost. A month-to-month customer can leave with zero penalty at any time; a two-year customer faces early termination fees. This is the clearest structural churn lever in the dataset.",
+        "why_others_dropped": "No comparable variable was dropped — contract type is unique. Billing cycle (monthly vs annual billing) overlaps significantly and was absorbed into contract type.",
+        "values": [
+            (
+                "Month-to-month",
+                "🔴 Highest risk",
+                "No lock-in whatsoever. The customer can cancel the same day they see a competitor ad. This group accounts for the majority of all churns in the dataset.",
+            ),
+            (
+                "One year",
+                "🟡 Moderate risk",
+                "Moderate switching cost — an early termination fee acts as a brake. Customers are more likely to wait out the contract than actively churn mid-term.",
+            ),
+            (
+                "Two year",
+                "🟢 Lowest risk",
+                "Strong financial commitment. Churn in this group is rare and usually driven by relocation or extreme service failure, not preference.",
+            ),
+        ],
+    },
+    "💰 Monthly Charges": {
+        "why_kept": "Monthly charges capture current price pressure. Total charges are auto-calculated as tenure × monthly charges — a proxy for cumulative spend — and fed to the model automatically without requiring manual input.",
+        "why_others_dropped": "CLTV (Customer Lifetime Value) was available in some dataset versions but is a derived field computed from charges and tenure — including it would be near-circular. It was excluded to keep features causal.",
+        "values": [
+            (
+                "Monthly < $45",
+                "🟢 Low pressure",
+                "Budget tier customers have little financial motivation to switch — competitors would offer similar or higher prices. Price is not their pain point.",
+            ),
+            (
+                "Monthly $45 – $75",
+                "🟡 Moderate pressure",
+                "Mid-range customers are comparison-shopping territory. A competitor offering the same bundle at $10 less could trigger a switch.",
+            ),
+            (
+                "Monthly > $75",
+                "🔴 High pressure",
+                "Premium-tier customers scrutinise their bill. If they don't perceive commensurate value (fast internet, good support), they churn. Especially dangerous on month-to-month contracts.",
+            ),
+        ],
+    },
+    "🌐 Internet Service": {
+        "why_kept": "Internet service type is both a product tier signal and a satisfaction proxy. Fiber optic customers pay more and expect more — making them more likely to churn when expectations aren't met. DSL customers are often lower-expectation, stickier subscribers.",
+        "why_others_dropped": "Raw bandwidth/speed metrics were not available. Internet service type is the best available proxy for the technology tier a customer is on.",
+        "values": [
+            (
+                "No internet",
+                "🟢 Low risk",
+                "Phone-only customers have simpler needs, fewer competitors to switch to, and lower bills. Churn is rare.",
+            ),
+            (
+                "DSL",
+                "🟡 Moderate risk",
+                "Older technology, lower cost, lower expectations. Customers are generally satisfied with 'good enough' service and churn less than fiber users.",
+            ),
+            (
+                "Fiber optic",
+                "🔴 Higher risk",
+                "Counterintuitively, fiber customers churn more. They pay premium prices, have high expectations, and operate in a more competitive market. Without supporting services (security, tech support), dissatisfaction builds quickly.",
+            ),
+        ],
+    },
+    "🛡️ Tech Support & Security": {
+        "why_kept": "These add-ons act as satisfaction anchors. A customer who has set up tech support has a direct service relationship with the provider — they're less likely to want to re-establish that relationship elsewhere. Security add-ons create a sense of dependency and trust.",
+        "why_others_dropped": "Streaming TV and Movies were kept as features but have weaker individual signal — they contribute to bundle depth. Customer satisfaction scores (CSAT/NPS) would be ideal but weren't in the dataset.",
+        "values": [
+            (
+                "Tech Support: Yes",
+                "🟢 Reduces risk",
+                "Customers with tech support have an active human touchpoint with the provider. Resolving issues builds loyalty. These customers churn at roughly half the rate of those without.",
+            ),
+            (
+                "Tech Support: No",
+                "🔴 Raises risk",
+                "No support relationship means problems go unresolved. For fiber optic customers especially, lack of support is a top churn driver.",
+            ),
+            (
+                "Online Security: Yes",
+                "🟢 Reduces risk",
+                "Security-subscribed customers feel the service is protecting something important. Switching means giving that up and re-configuring protection elsewhere — a real friction cost.",
+            ),
+            (
+                "Online Security: No",
+                "🟡 Mild risk",
+                "Lower commitment to the service ecosystem. No security subscription doesn't guarantee churn, but removes a loyalty anchor.",
+            ),
+        ],
+    },
+    "💳 Payment Method": {
+        "why_kept": "Payment method is a strong proxy for customer engagement and intentionality. Automated payment customers have opted in more deliberately — they've handed over banking details, signalling higher commitment. Manual payment methods correlate with passive or disengaged customers.",
+        "why_others_dropped": "Specific bank or card provider data was not available. Payment method category is the best available signal for payment intentionality.",
+        "values": [
+            (
+                "Electronic check",
+                "🔴 Highest risk",
+                "The highest-churn payment group. Electronic check users are often one-time setup customers who never fully committed. It's the easiest method to set up and the easiest to cancel.",
+            ),
+            (
+                "Mailed check",
+                "🟡 Moderate risk",
+                "Slightly lower churn than e-check — these customers engage each month by physically mailing a payment. But it's still manual and non-committed.",
+            ),
+            (
+                "Bank transfer (auto)",
+                "🟢 Low risk",
+                "Auto-pay via bank transfer signals intentional long-term commitment. Cancelling requires active effort — the customer must go in and stop the transfer.",
+            ),
+            (
+                "Credit card (auto)",
+                "🟢 Low risk",
+                "Similar to bank transfer. Auto-pay customers are systematically more engaged. Credit card users also tend to be in higher income brackets with fewer price objections.",
+            ),
+        ],
+    },
+    "📍 Location Type": {
+        "why_kept": "Rather than encoding 1,100+ individual California cities, we engineered a single Location Type feature using US Census population density thresholds. Urban customers have more ISP competitors and higher churn tendency; rural customers have fewer alternatives and are stickier.",
+        "why_others_dropped": "Raw City and Zip Code were dropped — one-hot encoding 1,131 cities from ~7,000 rows creates severe sparsity, with most cities having only 2-5 training examples. Population density compresses this into three meaningful, generalisable categories.",
+        "values": [
+            (
+                "Urban",
+                "🔴 Higher risk",
+                "Dense markets have the most ISP competition. Customers can easily switch to a rival offering a better deal. Urban customers are more digitally engaged and more likely to comparison-shop.",
+            ),
+            (
+                "Suburban",
+                "🟡 Moderate risk",
+                "Moderate competition. Customers have some alternatives but switching friction is higher than in urban areas. Price and service quality are the main churn drivers.",
+            ),
+            (
+                "Rural",
+                "🟢 Lower risk",
+                "Fewer competitor options mean customers often stay by default. However, service quality issues hit harder since alternatives are limited — extreme dissatisfaction can still trigger churn.",
+            ),
+        ],
+    },
+    "👤 Demographics": {
+        "why_kept": "Demographics are kept for model completeness and equity auditing, but they carry low individual predictive weight. The most signal comes from Dependents and Senior Citizen — not gender or partner status.",
+        "why_others_dropped": "Age (continuous) was not available — Senior Citizen (binary 65+) is the available proxy. Race and income were not in the dataset and were not used.",
+        "values": [
+            (
+                "Senior Citizen: Yes",
+                "🟡 Slight risk",
+                "Senior customers may be less comfortable navigating cancellation, which slightly reduces churn. However, on fixed incomes they can be price-sensitive. Effect is modest.",
+            ),
+            (
+                "Dependents: Yes",
+                "🟢 Slightly reduces risk",
+                "Customers with dependents have more people relying on the service. Disrupting connectivity for a household is a higher-friction decision than for a single user.",
+            ),
+            (
+                "Partner: Yes",
+                "🟢 Slightly reduces risk",
+                "Shared services are harder to cancel. Also correlates loosely with household stability.",
+            ),
+            (
+                "Gender",
+                "⚪ Neutral",
+                "Gender shows no statistically meaningful difference in churn rate in this dataset. It is retained for completeness and bias monitoring, not predictive value.",
+            ),
+        ],
+    },
+    "📋 Paperless Billing": {
+        "why_kept": "Paperless billing is a digital engagement signal. It correlates with customers who are more active online — and paradoxically, more likely to churn, because they're also more likely to comparison-shop online and respond to competitor digital marketing.",
+        "why_others_dropped": "No other billing format variables were available. This is the only billing-behaviour signal in the dataset.",
+        "values": [
+            (
+                "Paperless: Yes",
+                "🟡 Slightly raises risk",
+                "Digital customers are more engaged and more informed — they see competitor ads, read reviews, and compare prices. Churn rate is modestly higher than paper billing customers.",
+            ),
+            (
+                "Paperless: No",
+                "🟢 Slightly reduces risk",
+                "Paper billing customers tend to be older, less digitally active, and less likely to actively seek out alternative providers. Inertia plays in the provider's favour.",
+            ),
+        ],
+    },
+}
 
-with st.expander("Feature Logic Explorer", expanded=False):
-    st.markdown(
-        '<p style="color:var(--muted);font-size:0.83rem;line-height:1.7;margin:-0.25rem 0 1.25rem">'
-        "Each feature below was deliberately chosen — or dropped — based on its predictive signal, "
-        "data quality, and interpretability. Expand any feature to see what values raise or lower churn risk, "
-        "and why the model weights it the way it does."
-        "</p>",
-        unsafe_allow_html=True,
+accordion_html = "<div style='border:1px solid var(--cream-3);border-radius:var(--radius);overflow:hidden;margin-bottom:2rem;'>"
+for label, info in FEATURE_LOGIC.items():
+    cards_inner = ""
+    for val_label, risk, explanation in info["values"]:
+        cards_inner += (
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;'
+            'gap:1rem;padding:0.75rem 0;border-bottom:1px solid var(--cream-2);">'
+            '<div style="flex:1">'
+            f'<div style="font-size:0.83rem;font-weight:600;color:var(--text);margin-bottom:0.25rem">{val_label}</div>'
+            f'<div style="font-size:0.8rem;color:var(--muted);line-height:1.6">{explanation}</div>'
+            "</div>"
+            f'<div style="font-size:0.74rem;font-weight:600;color:var(--muted);white-space:nowrap;padding-top:2px">{risk}</div>'
+            "</div>"
+        )
+    accordion_html += (
+        '<details style="border-bottom:1px solid var(--cream-3);">'
+        '<summary style="list-style:none;display:flex;justify-content:space-between;'
+        "align-items:center;padding:0.85rem 1.1rem;cursor:pointer;font-size:0.83rem;"
+        'font-weight:600;color:var(--text);background:#fff;user-select:none;">'
+        f"<span>{label}</span>"
+        '<span style="font-size:0.7rem;color:var(--muted)">▼</span>'
+        "</summary>"
+        f'<div style="padding:0.5rem 1.1rem 0.75rem;background:var(--cream);">{cards_inner}</div>'
+        "</details>"
     )
-    FEATURE_LOGIC = {
-        "📅 Tenure": {
-            "why_kept": "Tenure is one of the single strongest predictors of churn in subscription businesses. It captures relationship depth — the longer a customer has stayed, the higher their switching cost (learned UI, bundled services, loyalty discounts) and the more satisfied they presumably are.",
-            "why_others_dropped": "Raw signup date was dropped — absolute dates leak time-of-year bias and don't generalise across cohorts. Tenure (months) is a clean, comparable numeric signal.",
-            "values": [
-                (
-                    "0 – 11 months",
-                    "🔴 Highest risk",
-                    "New customers haven't yet experienced full service value. Buyer's remorse, onboarding friction, and competitor offers hit hardest in the first year. Churn rate in this band is typically 2–3× the average.",
-                ),
-                (
-                    "12 – 35 months",
-                    "🟡 Moderate risk",
-                    "Customer has cleared the critical early window but hasn't reached deep loyalty. Price sensitivity remains — a competitor offer can still flip them.",
-                ),
-                (
-                    "36 + months",
-                    "🟢 Low risk",
-                    "Long-tenure customers have high inertia. They've integrated the service into their routines, likely have bundled add-ons, and rarely shop around actively.",
-                ),
-            ],
-        },
-        "💳 Contract Type": {
-            "why_kept": "Contract type directly encodes commitment and exit cost. A month-to-month customer can leave with zero penalty at any time; a two-year customer faces early termination fees. This is the clearest structural churn lever in the dataset.",
-            "why_others_dropped": "No comparable variable was dropped — contract type is unique. Billing cycle (monthly vs annual billing) overlaps significantly and was absorbed into contract type.",
-            "values": [
-                (
-                    "Month-to-month",
-                    "🔴 Highest risk",
-                    "No lock-in whatsoever. The customer can cancel the same day they see a competitor ad. This group accounts for the majority of all churns in the dataset.",
-                ),
-                (
-                    "One year",
-                    "🟡 Moderate risk",
-                    "Moderate switching cost — an early termination fee acts as a brake. Customers are more likely to wait out the contract than actively churn mid-term.",
-                ),
-                (
-                    "Two year",
-                    "🟢 Lowest risk",
-                    "Strong financial commitment. Churn in this group is rare and usually driven by relocation or extreme service failure, not preference.",
-                ),
-            ],
-        },
-        "💰 Monthly Charges": {
-            "why_kept": "Monthly charges capture current price pressure. Total charges are auto-calculated as tenure × monthly charges — a proxy for cumulative spend — and fed to the model automatically without requiring manual input.",
-            "why_others_dropped": "CLTV (Customer Lifetime Value) was available in some dataset versions but is a derived field computed from charges and tenure — including it would be near-circular. It was excluded to keep features causal.",
-            "values": [
-                (
-                    "Monthly < $45",
-                    "🟢 Low pressure",
-                    "Budget tier customers have little financial motivation to switch — competitors would offer similar or higher prices. Price is not their pain point.",
-                ),
-                (
-                    "Monthly $45 – $75",
-                    "🟡 Moderate pressure",
-                    "Mid-range customers are comparison-shopping territory. A competitor offering the same bundle at $10 less could trigger a switch.",
-                ),
-                (
-                    "Monthly > $75",
-                    "🔴 High pressure",
-                    "Premium-tier customers scrutinise their bill. If they don't perceive commensurate value (fast internet, good support), they churn. Especially dangerous on month-to-month contracts.",
-                ),
-            ],
-        },
-        "🌐 Internet Service": {
-            "why_kept": "Internet service type is both a product tier signal and a satisfaction proxy. Fiber optic customers pay more and expect more — making them more likely to churn when expectations aren't met. DSL customers are often lower-expectation, stickier subscribers.",
-            "why_others_dropped": "Raw bandwidth/speed metrics were not available. Internet service type is the best available proxy for the technology tier a customer is on.",
-            "values": [
-                (
-                    "No internet",
-                    "🟢 Low risk",
-                    "Phone-only customers have simpler needs, fewer competitors to switch to, and lower bills. Churn is rare.",
-                ),
-                (
-                    "DSL",
-                    "🟡 Moderate risk",
-                    "Older technology, lower cost, lower expectations. Customers are generally satisfied with 'good enough' service and churn less than fiber users.",
-                ),
-                (
-                    "Fiber optic",
-                    "🔴 Higher risk",
-                    "Counterintuitively, fiber customers churn more. They pay premium prices, have high expectations, and operate in a more competitive market. Without supporting services (security, tech support), dissatisfaction builds quickly.",
-                ),
-            ],
-        },
-        "🛡️ Tech Support & Security": {
-            "why_kept": "These add-ons act as satisfaction anchors. A customer who has set up tech support has a direct service relationship with the provider — they're less likely to want to re-establish that relationship elsewhere. Security add-ons create a sense of dependency and trust.",
-            "why_others_dropped": "Streaming TV and Movies were kept as features but have weaker individual signal — they contribute to bundle depth. Customer satisfaction scores (CSAT/NPS) would be ideal but weren't in the dataset.",
-            "values": [
-                (
-                    "Tech Support: Yes",
-                    "🟢 Reduces risk",
-                    "Customers with tech support have an active human touchpoint with the provider. Resolving issues builds loyalty. These customers churn at roughly half the rate of those without.",
-                ),
-                (
-                    "Tech Support: No",
-                    "🔴 Raises risk",
-                    "No support relationship means problems go unresolved. For fiber optic customers especially, lack of support is a top churn driver.",
-                ),
-                (
-                    "Online Security: Yes",
-                    "🟢 Reduces risk",
-                    "Security-subscribed customers feel the service is protecting something important. Switching means giving that up and re-configuring protection elsewhere — a real friction cost.",
-                ),
-                (
-                    "Online Security: No",
-                    "🟡 Mild risk",
-                    "Lower commitment to the service ecosystem. No security subscription doesn't guarantee churn, but removes a loyalty anchor.",
-                ),
-            ],
-        },
-        "💳 Payment Method": {
-            "why_kept": "Payment method is a strong proxy for customer engagement and intentionality. Automated payment customers have opted in more deliberately — they've handed over banking details, signalling higher commitment. Manual payment methods correlate with passive or disengaged customers.",
-            "why_others_dropped": "Specific bank or card provider data was not available. Payment method category is the best available signal for payment intentionality.",
-            "values": [
-                (
-                    "Electronic check",
-                    "🔴 Highest risk",
-                    "The highest-churn payment group. Electronic check users are often one-time setup customers who never fully committed. It's the easiest method to set up and the easiest to cancel.",
-                ),
-                (
-                    "Mailed check",
-                    "🟡 Moderate risk",
-                    "Slightly lower churn than e-check — these customers engage each month by physically mailing a payment. But it's still manual and non-committed.",
-                ),
-                (
-                    "Bank transfer (auto)",
-                    "🟢 Low risk",
-                    "Auto-pay via bank transfer signals intentional long-term commitment. Cancelling requires active effort — the customer must go in and stop the transfer.",
-                ),
-                (
-                    "Credit card (auto)",
-                    "🟢 Low risk",
-                    "Similar to bank transfer. Auto-pay customers are systematically more engaged. Credit card users also tend to be in higher income brackets with fewer price objections.",
-                ),
-            ],
-        },
-        "📍 Location Type": {
-            "why_kept": "Rather than encoding 1,100+ individual California cities, we engineered a single Location Type feature using US Census population density thresholds. Urban customers have more ISP competitors and higher churn tendency; rural customers have fewer alternatives and are stickier.",
-            "why_others_dropped": "Raw City and Zip Code were dropped — one-hot encoding 1,131 cities from ~7,000 rows creates severe sparsity, with most cities having only 2-5 training examples. Population density compresses this into three meaningful, generalisable categories.",
-            "values": [
-                (
-                    "Urban",
-                    "🔴 Higher risk",
-                    "Dense markets have the most ISP competition. Customers can easily switch to a rival offering a better deal. Urban customers are more digitally engaged and more likely to comparison-shop.",
-                ),
-                (
-                    "Suburban",
-                    "🟡 Moderate risk",
-                    "Moderate competition. Customers have some alternatives but switching friction is higher than in urban areas. Price and service quality are the main churn drivers.",
-                ),
-                (
-                    "Rural",
-                    "🟢 Lower risk",
-                    "Fewer competitor options mean customers often stay by default. However, service quality issues hit harder since alternatives are limited — extreme dissatisfaction can still trigger churn.",
-                ),
-            ],
-        },
-        "👤 Demographics": {
-            "why_kept": "Demographics are kept for model completeness and equity auditing, but they carry low individual predictive weight. The most signal comes from Dependents and Senior Citizen — not gender or partner status.",
-            "why_others_dropped": "Age (continuous) was not available — Senior Citizen (binary 65+) is the available proxy. Race and income were not in the dataset and were not used.",
-            "values": [
-                (
-                    "Senior Citizen: Yes",
-                    "🟡 Slight risk",
-                    "Senior customers may be less comfortable navigating cancellation, which slightly reduces churn. However, on fixed incomes they can be price-sensitive. Effect is modest.",
-                ),
-                (
-                    "Dependents: Yes",
-                    "🟢 Slightly reduces risk",
-                    "Customers with dependents have more people relying on the service. Disrupting connectivity for a household is a higher-friction decision than for a single user.",
-                ),
-                (
-                    "Partner: Yes",
-                    "🟢 Slightly reduces risk",
-                    "Shared services are harder to cancel. Also correlates loosely with household stability.",
-                ),
-                (
-                    "Gender",
-                    "⚪ Neutral",
-                    "Gender shows no statistically meaningful difference in churn rate in this dataset. It is retained for completeness and bias monitoring, not predictive value.",
-                ),
-            ],
-        },
-        "📋 Paperless Billing": {
-            "why_kept": "Paperless billing is a digital engagement signal. It correlates with customers who are more active online — and paradoxically, more likely to churn, because they're also more likely to comparison-shop online and respond to competitor digital marketing.",
-            "why_others_dropped": "No other billing format variables were available. This is the only billing-behaviour signal in the dataset.",
-            "values": [
-                (
-                    "Paperless: Yes",
-                    "🟡 Slightly raises risk",
-                    "Digital customers are more engaged and more informed — they see competitor ads, read reviews, and compare prices. Churn rate is modestly higher than paper billing customers.",
-                ),
-                (
-                    "Paperless: No",
-                    "🟢 Slightly reduces risk",
-                    "Paper billing customers tend to be older, less digitally active, and less likely to actively seek out alternative providers. Inertia plays in the provider's favour.",
-                ),
-            ],
-        },
-    }
+accordion_html += "</div>"
 
-    accordion_html = "<div style='border:1px solid var(--cream-3);border-radius:var(--radius);overflow:hidden;margin-bottom:2rem;'>"
-    for label, info in FEATURE_LOGIC.items():
-        cards_inner = ""
-        for val_label, risk, explanation in info["values"]:
-            cards_inner += f"""
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;padding:0.75rem 0;border-bottom:1px solid var(--cream-2);">
-    <div style="flex:1">
-      <div style="font-size:0.83rem;font-weight:600;color:var(--text);margin-bottom:0.25rem">{val_label}</div>
-      <div style="font-size:0.8rem;color:var(--muted);line-height:1.6">{explanation}</div>
-    </div>
-    <div style="font-size:0.74rem;font-weight:600;color:var(--muted);white-space:nowrap;padding-top:2px">{risk}</div>
-  </div>"""
-        accordion_html += f"""
-<details style="border-bottom:1px solid var(--cream-3);">
-  <summary style="
-    list-style:none;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    padding:0.85rem 1.1rem;
-    cursor:pointer;
-    font-size:0.83rem;
-    font-weight:600;
-    color:var(--text);
-    background:#fff;
-    user-select:none;
-  ">
-    <span>{label}</span>
-    <span style="font-size:0.7rem;color:var(--muted)">▼</span>
-  </summary>
-  <div style="padding:0.5rem 1.1rem 0.75rem;background:var(--cream);">
-    {cards_inner}
-  </div>
-</details>"""
-    accordion_html += "</div>"
-    st.markdown(accordion_html, unsafe_allow_html=True)
+outer_html = (
+    '<details style="margin-bottom:2rem;border-radius:6px;overflow:hidden;">'
+    '<summary style="list-style:none;display:flex;justify-content:space-between;'
+    "align-items:center;padding:0.75rem 1rem;cursor:pointer;font-size:0.88rem;"
+    'font-weight:600;color:#F7F3EE;background:#1F70C1;border-radius:6px;user-select:none;">'
+    "<span>Feature Logic Explorer</span>"
+    '<span style="font-size:0.7rem;color:rgba(247,243,238,0.7)">▼</span>'
+    "</summary>"
+    f'<div style="padding:1.25rem 1rem 1rem;border:1px solid #DDD7CF;border-top:none;box-shadow:0 4px 12px rgba(0,0,0,0.06);'
+    f'border-radius:0 0 6px 6px;">{fle_intro}{accordion_html}</div>'
+    "</details>"
+)
+st.markdown(outer_html, unsafe_allow_html=True)
