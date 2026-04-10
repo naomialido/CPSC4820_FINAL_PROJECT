@@ -1051,9 +1051,13 @@ with tab_bulk:
                 return "background-color:#eaf7f1;color:#1A7A52;font-weight:600"
             return "color:#aaa"
 
-        styled_tbl = display_df.style.applymap(
-            _style_risk, subset=["Risk Level"]
-        ).format({"Churn Probability (%)": lambda x: f"{x}%" if x is not None else "—"})
+        # pandas >=2.1 renamed applymap to map; support both
+        _styler = display_df.style
+        if hasattr(_styler, "map"):
+            _styler = _styler.map(_style_risk, subset=["Risk Level"])
+        else:
+            _styler = _styler.applymap(_style_risk, subset=["Risk Level"])
+        styled_tbl = _styler.format({"Churn Probability (%)": lambda x: f"{x}%" if x is not None else "—"})
         st.markdown(
             f'<p style="font-size:0.78rem;color:var(--muted);margin-bottom:0.4rem">'
             f"Showing <strong>{len(display_df):,}</strong> of <strong>{n_rows:,}</strong> customers</p>",
